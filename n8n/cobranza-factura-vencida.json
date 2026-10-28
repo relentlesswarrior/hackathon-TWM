@@ -1,0 +1,161 @@
+{
+  "name": "Ándale - Cobranza automática (T5.1)",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Cada día 9am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-680, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "get_clients",
+      "name": "Buscar clientes a cobrar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-440, 0],
+      "notes": "RPC get_clients_for_collection — ver app/supabase/migrations/20261028000000_real_schema_business_logic.sql",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_clients_for_collection",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"p_company_id\": $env.ANDALE_COMPANY_ID, \"p_min_days_since_movement\": 15 } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "split_clients",
+      "name": "Un cliente por ejecución",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 0],
+      "parameters": {
+        "jsCode": "const rows = Array.isArray($input.first().json) ? $input.first().json : [];\nreturn rows.map(row => ({ json: row }));"
+      }
+    },
+    {
+      "id": "has_phone",
+      "name": "¿Tiene teléfono?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [40, 0],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.phone }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "call_elevenlabs",
+      "name": "Llamar con ElevenLabs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, -100],
+      "notes": "Endpoint de ejemplo — ajustar al método de llamada saliente elegido (ConvAI + Twilio, o el que ofrezca tu cuenta de ElevenLabs). Ver agents/cobranza-voz/README.md",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.elevenlabs.io/v1/convai/twilio/outbound-call",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "xi-api-key", "value": "={{ $env.ELEVENLABS_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"agent_id\": $env.ELEVENLABS_AGENT_ID, \"agent_phone_number_id\": $env.ELEVENLABS_PHONE_NUMBER_ID, \"to_number\": $json.phone, \"conversation_initiation_client_data\": { \"dynamic_variables\": { \"client_name\": $json.client_name, \"balance\": $json.balance, \"days_since_last_movement\": $json.days_since_last_movement } } } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "log_call",
+      "name": "Registrar en agent_logs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, -100],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/agent_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"company_id\": $env.ANDALE_COMPANY_ID, \"agent\": \"cobranza_voz\", \"action\": \"llamada_cobranza\", \"status\": \"completado\", \"details\": { \"client_id\": $('Un cliente por ejecución').item.json.client_id, \"client_name\": $('Un cliente por ejecución').item.json.client_name, \"balance\": $('Un cliente por ejecución').item.json.balance, \"elevenlabs_response\": $json } } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "log_skip",
+      "name": "Registrar sin teléfono",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 120],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/agent_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"company_id\": $env.ANDALE_COMPANY_ID, \"agent\": \"cobranza_voz\", \"action\": \"llamada_cobranza\", \"status\": \"omitido_sin_telefono\", \"details\": { \"client_id\": $json.client_id, \"client_name\": $json.client_name } } }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Cada día 9am": { "main": [[{ "node": "Buscar clientes a cobrar", "type": "main", "index": 0 }]] },
+    "Buscar clientes a cobrar": { "main": [[{ "node": "Un cliente por ejecución", "type": "main", "index": 0 }]] },
+    "Un cliente por ejecución": { "main": [[{ "node": "¿Tiene teléfono?", "type": "main", "index": 0 }]] },
+    "¿Tiene teléfono?": {
+      "main": [
+        [{ "node": "Llamar con ElevenLabs", "type": "main", "index": 0 }],
+        [{ "node": "Registrar sin teléfono", "type": "main", "index": 0 }]
+      ]
+    },
+    "Llamar con ElevenLabs": { "main": [[{ "node": "Registrar en agent_logs", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

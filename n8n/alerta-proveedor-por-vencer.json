@@ -1,0 +1,108 @@
+{
+  "name": "Ándale - Alerta facturas de proveedor por vencer (T5.3)",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Cada día 8am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-680, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "get_invoices",
+      "name": "Buscar facturas por vencer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-440, 0],
+      "notes": "RPC get_upcoming_supplier_invoices — ver app/supabase/migrations/20261028000000_real_schema_business_logic.sql",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_upcoming_supplier_invoices",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"p_company_id\": $env.ANDALE_COMPANY_ID, \"p_days_ahead\": 3 } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "split_invoices",
+      "name": "Una factura por ejecución",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 0],
+      "parameters": {
+        "jsCode": "const rows = Array.isArray($input.first().json) ? $input.first().json : [];\nreturn rows.map(row => ({ json: row }));"
+      }
+    },
+    {
+      "id": "notify_slack",
+      "name": "Avisar al dueño",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [60, 0],
+      "notes": "Webhook genérico (Slack incoming webhook por defecto). Cambia la URL/formato por WhatsApp o email según lo que uses.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOTIFY_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"text\": `⏰ Factura ${$json.folio} de ${$json.supplier_name} por $${$json.amount} vence el ${$json.due_date}. Revisa Ándale > Proveedores.` } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "log_alert",
+      "name": "Registrar en agent_logs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [320, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/agent_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"company_id\": $env.ANDALE_COMPANY_ID, \"agent\": \"alerta_proveedor\", \"action\": \"aviso_vencimiento\", \"status\": \"completado\", \"details\": { \"invoice_id\": $('Una factura por ejecución').item.json.invoice_id, \"folio\": $('Una factura por ejecución').item.json.folio, \"supplier_name\": $('Una factura por ejecución').item.json.supplier_name, \"amount\": $('Una factura por ejecución').item.json.amount, \"due_date\": $('Una factura por ejecución').item.json.due_date } } }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Cada día 8am": { "main": [[{ "node": "Buscar facturas por vencer", "type": "main", "index": 0 }]] },
+    "Buscar facturas por vencer": { "main": [[{ "node": "Una factura por ejecución", "type": "main", "index": 0 }]] },
+    "Una factura por ejecución": { "main": [[{ "node": "Avisar al dueño", "type": "main", "index": 0 }]] },
+    "Avisar al dueño": { "main": [[{ "node": "Registrar en agent_logs", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "Ándale - Agente de Cobranza",
+  "_comment": "Config de referencia para crear el agente vía ElevenLabs Dashboard (Conversational AI > Create Agent) o su API (POST /v1/convai/agents/create). Ajusta voice_id y llm al crearlo — estos son placeholders.",
+  "conversation_config": {
+    "agent": {
+      "language": "es",
+      "first_message": "Hola, buenas tardes. Hablo de parte de Ándale, el sistema que usa {{client_name}} para su negocio. ¿Tengo el gusto de hablar con la persona encargada de los pagos?",
+      "prompt": {
+        "prompt_file": "prompt.md",
+        "llm": "gemini-2.0-flash",
+        "temperature": 0.4,
+        "max_tokens": 300
+      },
+      "dynamic_variables": {
+        "client_name": "string",
+        "balance": "number",
+        "days_since_last_movement": "number"
+      }
+    },
+    "tts": {
+      "voice_id": "REPLACE_WITH_ELEVENLABS_VOICE_ID",
+      "model_id": "eleven_multilingual_v2",
+      "stability": 0.5,
+      "similarity_boost": 0.8
+    },
+    "turn": {
+      "turn_timeout": 10
+    }
+  },
+  "platform_settings": {
+    "call_limits": {
+      "max_concurrent_calls": 1
+    },
+    "privacy": {
+      "record_voice": false
+    }
+  }
+}
