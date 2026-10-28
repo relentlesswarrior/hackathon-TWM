@@ -4,9 +4,18 @@ Referencia y export del proyecto de **Lovable** (frontend + backend/Supabase gen
 
 - El proyecto vivo se construye y edita en Lovable (lovable.dev).
 - Esta carpeta se usa para versionar el export del código generado, configuración de Supabase (migraciones/schema) y notas de sincronización entre Lovable y este repo.
-- Agrega aquí el link al proyecto de Lovable una vez creado.
 
-**Link al proyecto Lovable:** _pendiente_
+**Link al proyecto Lovable:** https://lovable.dev/projects/b84ea81c-5f97-4b6f-bbb9-5652815eb180 ("Ándale Gestión Empresarial", workspace de Yail, conectado con GitHub)
+
+**Estado:** Lovable generó la base completa a partir de un solo prompt (ver sección "Schema real" abajo): autenticación multi-tenant (signup con correo o Google), empresas con código de invitación para colaboradores, dashboard general y los 4 módulos (CRM, RH, Finanzas, Proveedores) con CRUD funcional. Pendiente: crear la primera cuenta/empresa real y probar el recorrido completo.
+
+## ⚠️ Esquema real vs. esquema propuesto
+
+Lovable **generó su propio esquema de Supabase automáticamente** a partir del prompt (no usamos el SQL de abajo para crearlo). Los nombres de tabla reales en producción son:
+
+`absences`, `agent_logs`, `client_movements`, `clients`, `companies`, `departments`, `employees`, `interactions`, `opportunities`, `payslips`, `profiles`, `supplier_invoices`, `suppliers`, `transactions`, `user_roles`
+
+Esto difiere del diseño que escribimos a mano más abajo (`deals` vs `opportunities`, `vendors`/`vendor_invoices` vs `suppliers`/`supplier_invoices`, `payroll_records` vs `payslips`, `users` vs `profiles`/`user_roles`, etc.). El SQL de `supabase/migrations/` queda como **referencia de diseño** (RLS, lógica de negocio, modelo de datos razonado) pero **no se ha aplicado tal cual** — para activar los triggers/RPC de la sección "Lógica de negocio" hay que adaptarlos a los nombres reales de las tablas, o pedírselo directamente a Lovable por chat describiendo el comportamiento deseado.
 
 ## Esquema de base de datos (Supabase)
 
@@ -41,7 +50,13 @@ Corre después del esquema inicial:
 | `get_overdue_clients_for_collection(company_id, min_days_overdue)` | RPC | **n8n** consulta esto para decidir a quién llamar el agente de cobranza (T5.1) |
 | `get_upcoming_vendor_invoices(company_id, days_ahead)` | RPC | **n8n** consulta esto para la alerta de vencimiento a proveedor (T5.3) |
 
-**Habilitar `pg_cron`:** Supabase Dashboard → Database → Extensions → buscar `pg_cron` → Enable. Luego correr una vez en el SQL Editor:
+**`pg_cron` — ✅ habilitado** (2026-10-28) directo en el Supabase del proyecto Lovable, vía Database → Manage → SQL editor:
+```sql
+create extension if not exists pg_cron with schema extensions;
+```
+Verificado con `select extname, extversion from pg_extension where extname = 'pg_cron';` → `pg_cron 1.6.4`.
+
+Pendiente: programar el job real (`cron.schedule(...)`) una vez que la lógica de negocio (sección anterior) esté adaptada a los nombres reales de tabla:
 ```sql
 select cron.schedule('mark-overdue-invoices-daily', '0 6 * * *', $$ select public.mark_overdue_invoices(); $$);
 ```
